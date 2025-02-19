@@ -270,7 +270,8 @@ pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys)
+	.outclk_0(clk_sys),
+	.outclk_1(clk_cpu)
 );
 
 wire [1:0] col = status[4:3];
@@ -282,6 +283,12 @@ wire VSync;
 wire ce_pix;
 wire [7:0] video;
 
+assign CLK_VIDEO = vdp_clock;
+assign CE_PIXEL = vdp_ena;
+assign VGA_DE = ~(HBlank | VBlank);
+assign VGA_HS = HSync;
+assign VGA_VS = VSync;
+
 /******************************************************************************************/
 /******************************************************************************************/
 /***************************************** @ena *******************************************/
@@ -290,9 +297,9 @@ wire [7:0] video;
 
 wire ce_pix = vdp_ena;
 
-assign cpu_clock = clk_24;
-assign sys_clock = clk_48;
-assign vdp_clock = clk_48;
+assign cpu_clock = clk_cpu;
+assign sys_clock = clk_sys;
+assign vdp_clock = clk_sys;
 
 // vdp
 
@@ -411,22 +418,40 @@ wire        key_status;
 wire reset_key;
 wire [7:0] KM[7:0];
 
-/*
+reg         key_strobe;
+wire        key_pressed;
+wire        key_extended;
+wire  [7:0] key_code;
+wire        upcase;
+
+assign key_extended = ps2_key[8];
+assign key_pressed  = ps2_key[9];
+assign key_code     = ps2_key[7:0];
+
+always @(posedge clk_24) begin
+    reg old_state;
+    old_state <= ps2_key[10];
+
+    if(old_state != ps2_key[10]) begin
+       key_strobe <= ~key_strobe;
+    end
+end
+
 lm80c_ps2keyboard_adapter kbd
 (
-	.reset    ( !pll_locked  ),
+	.reset    ( reset ),
 	.clk      ( sys_clock    ),
 	
 	// input
-	.valid      ( key_valid    ),
-	.key        ( key          ),
-	.key_status ( key_status   ),
+	.valid      ( key_strobe    ),
+	.key        ( ps2_key       ),
+	.key_status ( key_pressed   ),
 	
 	// output
 	.KM       ( KM           ),	
 	.resetkey ( reset_key    )
 );
-*/
+
 
 /******************************************************************************************/
 /******************************************************************************************/
@@ -558,22 +583,5 @@ dpram #(8, 24) sdram
 	.data_b(),
 	.q_b()
 );
-
-
-
-
-assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL = ce_pix;
-
-assign VGA_DE = ~(HBlank | VBlank);
-assign VGA_HS = HSync;
-assign VGA_VS = VSync;
-assign VGA_G  = (!col || col == 2) ? video : 8'd0;
-assign VGA_R  = (!col || col == 1) ? video : 8'd0;
-assign VGA_B  = (!col || col == 3) ? video : 8'd0;
-
-reg  [26:0] act_cnt;
-always @(posedge clk_sys) act_cnt <= act_cnt + 1'd1; 
-assign LED_USER    = act_cnt[26]  ? act_cnt[25:18]  > act_cnt[7:0]  : act_cnt[25:18]  <= act_cnt[7:0];
 
 endmodule
