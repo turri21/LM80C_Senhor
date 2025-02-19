@@ -206,7 +206,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 
 `include "build_id.v" 
 localparam CONF_STR = {
-	"MyCore;;",
+	"LM80C;;",
 	"-;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[2],TV Mode,NTSC,PAL;",
@@ -254,7 +254,13 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.status(status),
 	.status_menumask({status[5]}),
 	
-	.ps2_key(ps2_key)
+	.ps2_key(ps2_key),
+
+	.ioctl_download(ioctl_download),
+	.ioctl_addr(ioctl_addr),
+	.ioctl_dout(ioctl_dout),
+	.ioctl_wr(ioctl_wr),
+	.ioctl_index(ioctl_index)
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
@@ -267,8 +273,6 @@ pll pll
 	.outclk_0(clk_sys)
 );
 
-wire reset = RESET | status[0] | buttons[1];
-
 wire [1:0] col = status[4:3];
 
 wire HBlank;
@@ -278,23 +282,285 @@ wire VSync;
 wire ce_pix;
 wire [7:0] video;
 
-mycore mycore
-(
-	.clk(clk_sys),
-	.reset(reset),
+/******************************************************************************************/
+/******************************************************************************************/
+/***************************************** @ena *******************************************/
+/******************************************************************************************/
+/******************************************************************************************/
+
+wire ce_pix = vdp_ena;
+
+assign cpu_clock = clk_24;
+assign sys_clock = clk_48;
+assign vdp_clock = clk_48;
+
+// vdp
+
+reg [1:0] cnt_vdp;
+always @(posedge vdp_clock)
+	cnt_vdp <= cnt_vdp + 1;
 	
-	.pal(status[2]),
-	.scandouble(forced_scandoubler),
+wire vdp_ena = cnt_vdp == 0;
 
-	.ce_pix(ce_pix),
+// cpu
 
-	.HBlank(HBlank),
-	.HSync(HSync),
-	.VBlank(VBlank),
-	.VSync(VSync),
+wire cpu_clock = clk_div[2];
+reg [3:0] clk_div;
+always @(posedge sys_clock)
+	clk_div <= clk_div + 3'd1;
 
-	.video(video)
+wire z80_ena = clk_div == 0 || clk_div == 8;
+wire psg_ena = clk_div == 0;   
+
+/******************************************************************************************/
+/******************************************************************************************/
+/***************************************** @reset *****************************************/
+/******************************************************************************************/
+/******************************************************************************************/
+
+// RESET goes into: t80a, vdp, psg, ctc
+
+// reset while booting or when the physical reset key is pressed
+wire reset = ~ROM_loaded | RESET | reset_key | eraser_busy | status[0] | buttons[1]; 
+
+// stops the cpu when booting, downloading or erasing
+wire WAIT = ~ROM_loaded | is_downloading;
+
+assign LED = ~(WAIT | PIO_data_B[1]);
+
+/******************************************************************************************/
+/******************************************************************************************/
+/***************************************** @lm80c *****************************************/
+/******************************************************************************************/
+/******************************************************************************************/
+
+// audio
+wire [7:0] CHANNEL_L;
+wire [7:0] CHANNEL_R;
+
+// keyboard
+wire [7:0] row_select;
+wire [7:0] column_bits;
+
+// ram interface
+wire [15:0] cpu_addr;
+wire [7:0]  cpu_dout;
+wire        cpu_rd;
+wire        cpu_wr;
+
+// PIO
+wire [7:0] PIO_data_A;
+wire [7:0] PIO_data_B;
+
+wire ROM_ENABLED = PIO_data_B[0];   // bit 0 of PIO B is used to switch between ROM and RAM
+
+lm80c lm80c
+(
+	.RESET(reset),
+	.WAIT(WAIT),
+	
+    // clocks
+	.sys_clock(sys_clock),		
+	.vdp_clock(vdp_clock),	
+	
+	.vdp_ena(vdp_ena),
+	.z80_ena(z80_ena),	
+	.psg_ena(psg_ena),
+		
+	// video
+	.R  ( VGA_R[5:0]  ),
+	.G  ( VGA_G[5:0]  ),
+	.B  ( VGA_B[5:0]  ),
+	.HS ( VGA_HS ),
+	.VS ( VGA_VS ),
+    .VBlank ( VGA_HB ),
+    .HBlank ( VGA_VB ),
+	
+	// audio
+	.CHANNEL_L(CHANNEL_L), 
+    .CHANNEL_R(CHANNEL_R), 
+	
+	// keyboard	
+	.KM(KM),
+	
+	// RAM interface
+	.ram_addr (cpu_addr),
+	.ram_din  (cpu_dout),
+	.ram_dout (sdram_dout),
+	.ram_rd   (cpu_rd),
+	.ram_wr   (cpu_wr),
+	
+	// parallel port
+	.PIO_data_A  (PIO_data_A),
+	.PIO_data_B  (PIO_data_B)	
 );
+
+/******************************************************************************************/
+/******************************************************************************************/
+/***************************************** @keyboard **************************************/
+/******************************************************************************************/
+/******************************************************************************************/
+		 
+wire ps2_kbd_clk;
+wire ps2_kbd_data;
+
+wire        key_valid;
+wire [15:0] key;
+wire        key_status;
+
+wire reset_key;
+wire [7:0] KM[7:0];
+
+/*
+lm80c_ps2keyboard_adapter kbd
+(
+	.reset    ( !pll_locked  ),
+	.clk      ( sys_clock    ),
+	
+	// input
+	.valid      ( key_valid    ),
+	.key        ( key          ),
+	.key_status ( key_status   ),
+	
+	// output
+	.KM       ( KM           ),	
+	.resetkey ( reset_key    )
+);
+*/
+
+/******************************************************************************************/
+/******************************************************************************************/
+/***************************************** @downloader ************************************/
+/******************************************************************************************/
+/******************************************************************************************/
+
+wire        is_downloading;
+wire [24:0] download_addr;
+wire [7:0]  download_data;
+wire        download_wr;
+wire        ROM_loaded;
+
+// ROM download helper
+downloader 
+#(
+    .BOOT_INDEX (0),
+	.PRG_INDEX  (2),
+	.ROM_INDEX  (3),	
+	.ROM_START_ADDR  (25'h00000), // start of ROM (bank 0 of SDRAM)
+	.PRG_START_ADDR  (25'h15608), // start of BASIC program in free RAM: print hex$(deek(BASTXT))
+	.PTR_PROGND      (25'h155e4)  // pointer to end of basic program
+)
+downloader (
+	
+	// new SPI interface
+    //.SPI_DO ( SPI_DO  ),
+	//.SPI_DI ( SPI_DI  ),
+    //.SPI_SCK( SPI_SCK ),
+    //.SPI_SS2( SPI_SS2 ),
+    //.SPI_SS3( SPI_SS3 ),
+    //.SPI_SS4( SPI_SS4 ),
+	
+    .ioctl_download(ioctl_download),  // signal indicating an active rom download
+	.ioctl_index(ioctl_index),     // 0=rom download, 1=prg dowload
+    .ioctl_addr(ioctl_addr),
+    .ioctl_dout(ioctl_dout),
+	.ioctl_wr(ioctl_wr),
+
+    // signal indicating an active rom download
+    .downloading ( is_downloading  ),
+    .ROM_done    ( ROM_loaded      ),	
+	         
+    // external ram interface
+    .clk     ( sys_clock     ),
+    .clk_ena ( 1             ),
+    .wr      ( download_wr   ),
+    .addr    ( download_addr ),
+    .data    ( download_data )	
+);
+
+/******************************************************************************************/
+/******************************************************************************************/
+/***************************************** @eraser ****************************************/
+/******************************************************************************************/
+/******************************************************************************************/
+
+wire eraser_busy;
+wire eraser_wr;
+wire [24:0] eraser_addr;
+wire [7:0]  eraser_data;
+
+eraser eraser(
+	.clk      ( sys_clock     ),
+	.ena      ( z80_ena       ),
+	.trigger  ( st_menu_reset ),	
+	.erasing  ( eraser_busy   ),
+	.wr       ( eraser_wr     ),
+	.addr     ( eraser_addr   ),
+	.data     ( eraser_data   )
+);
+
+/******************************************************************************************/
+/******************************************************************************************/
+/***************************************** @sdram *****************************************/
+/******************************************************************************************/
+/******************************************************************************************/
+			
+// SDRAM control signals
+assign SDRAM_CKE = 1'b1;
+
+reg [24:0] sdram_addr;
+reg  [7:0] sdram_din;
+reg        sdram_wr;
+reg        sdram_rd;
+reg [7:0]  sdram_dout;
+
+always @(*) begin
+	if(is_downloading && download_wr) begin
+		sdram_addr   <= download_addr;
+		sdram_din    <= download_data;
+		sdram_wr     <= download_wr;
+		sdram_rd     <= 1'b1;			
+	end	
+	else if(eraser_busy) begin		
+		sdram_addr   <= eraser_addr;
+		sdram_din    <= eraser_data;
+		sdram_wr     <= eraser_wr;
+		sdram_rd     <= 1'b1;		
+	end	
+	else begin
+		sdram_addr   <= { 8'd0, RAM_OFFSET, cpu_addr[15:0] };
+		sdram_din    <= cpu_dout;		
+		sdram_wr     <= cpu_wr;
+		sdram_rd     <= cpu_rd;
+	end	
+end
+
+// SDRAM is organized the following way:
+// from 0-0000 to 0-7FFF LM80C 32K ROM
+// from 0-8000 to 0-FFFF unused 
+// from 1-0000 to 1-FFFF LM80C 64K RAM
+// from 2-0000 to max    unused
+
+wire RAM_OFFSET = ~ROM_ENABLED | (cpu_addr[15:0] > 'h7fff);
+
+// 96K x 8 bits rom + ram
+dpram #(8, 24) sdram
+(
+	.clock_a(sys_clock),
+	.address_a(sdram_addr),
+	.wren_a(sdram_wr),
+	.data_a(sdram_din),
+	.q_a(sdram_dout),
+
+	.clock_b(),
+	.wren_b(),
+	.address_b(),
+	.data_b(),
+	.q_b()
+);
+
+
+
 
 assign CLK_VIDEO = clk_sys;
 assign CE_PIXEL = ce_pix;
