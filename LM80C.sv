@@ -181,7 +181,6 @@ assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;  
 
-assign VGA_SL = 0;
 assign VGA_F1 = 0;
 assign VGA_SCALER  = 0;
 assign VGA_DISABLE = 0;
@@ -236,7 +235,10 @@ localparam CONF_STR = {
 	"V,v",`BUILD_DATE 
 };
 
-wire forced_scandoubler;
+wire        forced_scandoubler;
+wire        direct_video;
+wire [21:0] gamma_bus;
+
 wire   [1:0] buttons;
 wire [127:0] status;
 wire  [10:0] ps2_key;
@@ -246,9 +248,10 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 	.EXT_BUS(),
-	.gamma_bus(),
 
 	.forced_scandoubler(forced_scandoubler),
+	.gamma_bus(gamma_bus),
+	.direct_video(direct_video),
 
 	.buttons(buttons),
 	.status(status),
@@ -266,28 +269,44 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 ///////////////////////   CLOCKS   ///////////////////////////////
 
 wire clk_sys;
+wire pll_locked;
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
 	.outclk_0(clk_sys),
-	.outclk_1(clk_cpu)
+	.outclk_1(clk_cpu),
+	.locked(pll_locked)
 );
 
 wire [1:0] col = status[4:3];
 
-wire HBlank;
-wire HSync;
-wire VBlank;
-wire VSync;
-wire ce_pix;
-wire [7:0] video;
+wire [5:0] rgb_r;
+wire [5:0] rgb_g;
+wire [5:0] rgb_b;
 
-assign CLK_VIDEO = vdp_clock;
-assign CE_PIXEL = vdp_ena;
-assign VGA_DE = ~(HBlank | VBlank);
-assign VGA_HS = HSync;
-assign VGA_VS = VSync;
+///////////////////   VIDEO   ////////////////////
+wire hblank, vblank;
+wire hs, vs;
+wire rotate_ccw = 1;
+wire no_rotate = 1'b1;
+wire flip = ~no_rotate;
+wire video_rotated;
+
+//screen_rotate screen_rotate (.*);
+/*
+arcade_video #(256,24) arcade_video
+(
+	.*,
+	.clk_video(vdp_clock),
+	.RGB_in({ {2'b00, rgb_r}, {2'b00, rgb_g}, {2'b00, rgb_b} }),
+	.HBlank(HBlank),
+	.VBlank(VBlank),
+	.HSync(hs),
+	.VSync(vs),
+	.fx(0)
+);
+*/
 
 /******************************************************************************************/
 /******************************************************************************************/
@@ -375,13 +394,13 @@ lm80c lm80c
 	.psg_ena(psg_ena),
 		
 	// video
-	.R  ( VGA_R[5:0]  ),
-	.G  ( VGA_G[5:0]  ),
-	.B  ( VGA_B[5:0]  ),
-	.HS ( VGA_HS ),
-	.VS ( VGA_VS ),
-    .VBlank ( VGA_HB ),
-    .HBlank ( VGA_VB ),
+	.R  ( rgb_r  ),
+	.G  ( rgb_g  ),
+	.B  ( rgb_b  ),
+	.HS ( hs ),
+	.VS ( vs ),
+    .VBlank ( VBlank ),
+    .HBlank ( HBlank ),
 	
 	// audio
 	.CHANNEL_L(CHANNEL_L), 
@@ -428,7 +447,7 @@ assign key_extended = ps2_key[8];
 assign key_pressed  = ps2_key[9];
 assign key_code     = ps2_key[7:0];
 
-always @(posedge clk_24) begin
+always @(posedge clk_cpu) begin
     reg old_state;
     old_state <= ps2_key[10];
 
@@ -531,7 +550,7 @@ eraser eraser(
 /******************************************************************************************/
 			
 // SDRAM control signals
-assign SDRAM_CKE = 1'b1;
+assign SDRAM_CLK = ~sys_clock;
 
 reg [24:0] sdram_addr;
 reg  [7:0] sdram_din;
@@ -569,6 +588,8 @@ end
 wire RAM_OFFSET = ~ROM_ENABLED | (cpu_addr[15:0] > 'h7fff);
 
 // 96K x 8 bits rom + ram
+
+/*
 dpram #(8, 24) sdram
 (
 	.clock_a(sys_clock),
@@ -582,6 +603,22 @@ dpram #(8, 24) sdram
 	.address_b(),
 	.data_b(),
 	.q_b()
+);
+*/
+
+sdram sdram
+(
+   .*,
+   .init(~pll_locked),
+   .clk(sys_clock),
+
+   .wtbt(0),
+   .addr(sdram_addr),
+   .rd(sdram_rd),
+   .dout(sdram_dout),
+   .din(sdram_din),
+   .we(sdram_wr),
+   .ready()
 );
 
 endmodule
