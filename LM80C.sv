@@ -286,27 +286,35 @@ wire [5:0] rgb_g;
 wire [5:0] rgb_b;
 
 ///////////////////   VIDEO   ////////////////////
-wire hblank, vblank;
+wire HBlank, VBlank;
 wire hs, vs;
+
+/*
+assign VGA_DE = ~(VBlank | HBlank);
+assign CE_PIXEL = vdp_ena;
+assign VGA_SL = 0;
+assign CLK_VIDEO = vdp_clock;
+*/
+
 wire rotate_ccw = 1;
 wire no_rotate = 1'b1;
 wire flip = ~no_rotate;
 wire video_rotated;
 
 //screen_rotate screen_rotate (.*);
-/*
-arcade_video #(256,24) arcade_video
+
+arcade_video #(256,18) arcade_video
 (
 	.*,
 	.clk_video(vdp_clock),
-	.RGB_in({ {2'b00, rgb_r}, {2'b00, rgb_g}, {2'b00, rgb_b} }),
+	.RGB_in({ rgb_r, rgb_g, rgb_b }),
 	.HBlank(HBlank),
 	.VBlank(VBlank),
 	.HSync(hs),
 	.VSync(vs),
 	.fx(0)
 );
-*/
+
 
 /******************************************************************************************/
 /******************************************************************************************/
@@ -399,7 +407,7 @@ lm80c lm80c
 	.B  ( rgb_b  ),
 	.HS ( hs ),
 	.VS ( vs ),
-    .VBlank ( VBlank ),
+    .VBlank ( VBlank),
     .HBlank ( HBlank ),
 	
 	// audio
@@ -551,6 +559,7 @@ eraser eraser(
 			
 // SDRAM control signals
 assign SDRAM_CLK = ~sys_clock;
+//assign SDRAM_CKE = 1'b1;
 
 reg [24:0] sdram_addr;
 reg  [7:0] sdram_din;
