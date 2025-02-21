@@ -552,82 +552,152 @@ eraser eraser(
 );
 
 /******************************************************************************************/
+/*                              SPLIT ROM & RAM BRAM LOGIC                                */
 /******************************************************************************************/
-/***************************************** @sdram *****************************************/
-/******************************************************************************************/
-/******************************************************************************************/
-			
-// SDRAM control signals
-assign SDRAM_CLK = ~sys_clock;
-//assign SDRAM_CKE = 1'b1;
 
-reg [24:0] sdram_addr;
-reg  [7:0] sdram_din;
-reg        sdram_wr;
-reg        sdram_rd;
-reg [7:0]  sdram_dout;
+// =======================================================================
+// We will create two dual-port BRAMs:
+//   1) 32 KB ROM  => addresses [0x0000..0x7FFF]
+//   2) 64 KB RAM  => addresses [0x0000..0xFFFF] (CPU sees 0x8000..0xFFFF as RAM 
+//      when ROM_ENABLED=1, or 0x0000..0xFFFF if ROM_ENABLED=0).
+//
+// The original “SDRAM” was also used to store downloaded ROM or program, 
+// so we allow writes to the “ROM” BRAM if the download_addr is in [0..0x7FFF], 
+// and writes to the “RAM” BRAM if in [0x10000..0x1FFFF], etc.
+//
+// The CPU read data is a mux of rom_dout or ram_dout, depending on address 
+// and ROM_ENABLED.
+//
+// Unused addresses are simply ignored or not written.
+// =======================================================================
 
+wire [7:0] rom_dout;
+wire [7:0] ram_dout;
+
+// ---------------------
+// CPU access decoding
+// ---------------------
+wire rom_cpu_sel = ROM_ENABLED && (cpu_addr < 16'h8000);  // CPU is reading from ROM region
+wire ram_cpu_sel = ~rom_cpu_sel;                          // CPU is accessing RAM region
+
+// This is the data the CPU sees on read:
+assign sdram_dout = rom_cpu_sel ? rom_dout : ram_dout;
+
+
+// ---------------------
+// Download/Eraser address decoding
+//    We allow writing to ROM if download_addr < 0x8000
+//    We allow writing to RAM if download_addr in [0x10000..0x1FFFF]
+//    (depending on how you arranged your memory map).
+// ---------------------
+reg        rom_wr; 
+reg [14:0] rom_wr_addr;
+reg  [7:0] rom_wr_data;
+
+reg        ram_wr;
+reg [15:0] ram_wr_addr;
+reg  [7:0] ram_wr_data;
+
+// Combine all write sources in one always block:
 always @(*) begin
-	if(is_downloading && download_wr) begin
-		sdram_addr   <= download_addr;
-		sdram_din    <= download_data;
-		sdram_wr     <= download_wr;
-		sdram_rd     <= 1'b1;			
-	end	
-	else if(eraser_busy) begin		
-		sdram_addr   <= eraser_addr;
-		sdram_din    <= eraser_data;
-		sdram_wr     <= eraser_wr;
-		sdram_rd     <= 1'b1;		
-	end	
-	else begin
-		sdram_addr   <= { 8'd0, RAM_OFFSET, cpu_addr[15:0] };
-		sdram_din    <= cpu_dout;		
-		sdram_wr     <= cpu_wr;
-		sdram_rd     <= cpu_rd;
-	end	
+    // Defaults
+    rom_wr       = 1'b0;
+    ram_wr       = 1'b0;
+    rom_wr_addr  = 15'h0000;
+    ram_wr_addr  = 16'h0000;
+    rom_wr_data  = 8'h00;
+    ram_wr_data  = 8'h00;
+
+    if(is_downloading && download_wr) begin
+        // Download is writing
+        if(download_addr < 25'h08000) begin
+            // Write to ROM region
+            rom_wr       = 1'b1;
+            rom_wr_addr  = download_addr[14:0];
+            rom_wr_data  = download_data;
+        end
+        else if((download_addr >= 25'h10000) && (download_addr < 25'h20000)) begin
+            // Write to RAM region 
+            ram_wr       = 1'b1;
+            ram_wr_addr  = download_addr[15:0]; 
+            ram_wr_data  = download_data;
+        end
+        // else: ignore addresses outside these ranges
+    end
+    else if(eraser_busy && eraser_wr) begin
+        // Eraser is writing
+        if(eraser_addr < 25'h08000) begin
+            rom_wr       = 1'b1;
+            rom_wr_addr  = eraser_addr[14:0];
+            rom_wr_data  = eraser_data;
+        end
+        else if((eraser_addr >= 25'h10000) && (eraser_addr < 25'h20000)) begin
+            ram_wr       = 1'b1;
+            ram_wr_addr  = eraser_addr[15:0];
+            ram_wr_data  = eraser_data;
+        end
+        // else: ignore
+    end
+    else begin
+        // CPU is accessing
+        // Note that writing the ROM region is possible only if you wish 
+        // to allow self‐modifying “ROM”. Usually you'd disable it. 
+        // We'll replicate the old logic: if ROM_ENABLED=0, you can write in the whole 64k area.
+        if(cpu_wr && (ram_cpu_sel || ~ROM_ENABLED)) begin
+            // Writes go to RAM area
+            ram_wr       = 1'b1;
+            ram_wr_addr  = cpu_addr;
+            ram_wr_data  = cpu_dout;
+        end
+        // No direct CPU writes to the real ROM if ROM_ENABLED=1. 
+        // (You could add a condition if you prefer.)
+    end
 end
 
-// SDRAM is organized the following way:
-// from 0-0000 to 0-7FFF LM80C 32K ROM
-// from 0-8000 to 0-FFFF unused 
-// from 1-0000 to 1-FFFF LM80C 64K RAM
-// from 2-0000 to max    unused
+// ---------------------
+// CPU read addresses
+// ---------------------
+wire [14:0] rom_cpu_addr = cpu_addr[14:0];
+wire [15:0] ram_cpu_addr = cpu_addr;
 
-wire RAM_OFFSET = ~ROM_ENABLED | (cpu_addr[15:0] > 'h7fff);
-
-// 96K x 8 bits rom + ram
-
-/*
-dpram #(8, 24) sdram
+// ---------------------
+// 32 KB ROM Dual-Port
+// ---------------------
+dpram #(8,15) rom_mem
 (
-	.clock_a(sys_clock),
-	.address_a(sdram_addr),
-	.wren_a(sdram_wr),
-	.data_a(sdram_din),
-	.q_a(sdram_dout),
+    // Write port
+    .clock_a   (sys_clock),
+    .address_a (rom_wr_addr),
+    .wren_a    (rom_wr),
+    .data_a    (rom_wr_data),
+    .q_a       (), // unused on the write port
 
-	.clock_b(),
-	.wren_b(),
-	.address_b(),
-	.data_b(),
-	.q_b()
+    // Read port (CPU)
+    .clock_b   (sys_clock),
+    .address_b (rom_cpu_addr),
+    .wren_b    (1'b0),
+    .data_b    (8'h00),
+    .q_b       (rom_dout)
 );
-*/
 
-sdram sdram
+// ---------------------
+// 64 KB RAM Dual-Port
+// ---------------------
+dpram #(8,16) ram_mem
 (
-   .*,
-   .init(~pll_locked),
-   .clk(sys_clock),
+    // Write port
+    .clock_a   (sys_clock),
+    .address_a (ram_wr_addr),
+    .wren_a    (ram_wr),
+    .data_a    (ram_wr_data),
+    .q_a       (),  // unused
 
-   .wtbt(0),
-   .addr(sdram_addr),
-   .rd(sdram_rd),
-   .dout(sdram_dout),
-   .din(sdram_din),
-   .we(sdram_wr),
-   .ready()
+    // Read port (CPU)
+    .clock_b   (sys_clock),
+    .address_b (ram_cpu_addr),
+    .wren_b    (1'b0),
+    .data_b    (8'h00),
+    .q_b       (ram_dout)
 );
 
 endmodule
