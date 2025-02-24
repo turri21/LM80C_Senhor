@@ -52,8 +52,8 @@ always @(posedge clk) begin
 	
 end
 
-localparam IS_PAL = 0;
-parameter HORIZONTAL_SHIFT = -36;
+localparam IS_PAL = 1;
+parameter HORIZONTAL_SHIFT = 0; //-36;
 
 vdp18_core
   
@@ -141,7 +141,7 @@ always @(posedge clk) begin
 	end
 end
 
-localparam raw_output = 1;
+localparam raw_output = 0;
 
 wire blank = (vcnt < 8) || (hcnt < 60 || hcnt > 340);
 

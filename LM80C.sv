@@ -241,9 +241,16 @@ pll pll_inst
 );
 
 assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL  = vdp_ena;  
+assign CE_PIXEL  = ce_5m3;  
 
 // vdp
+
+reg ce_5m3 = 0;
+always @(posedge clk_sys) begin
+    reg [2:0] div;
+    div <= div + 1'd1;
+    ce_5m3  <= !div[2:0];  // Generates 5.3 MHz enable signal (CE_PIXEL)
+end
 
 reg [1:0] cnt_vdp;
 always @(posedge clk_vdp)
