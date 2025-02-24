@@ -1,16 +1,15 @@
-module lm80c_ps2keyboard_adapter
-(
-	input clk,
-	input reset,
-	
-	// input from ps2 keyboard
-	input        valid,       // 1 the key is valid and can be processed
-	input [15:0] key,         // the (extended) ps2 key code
-	input        key_status,  // 1=pressed, 0=released
-
-	// lm80c interface
-	output reg [7:0] KM [7:0],       // the 8x8 LM80C keyboard matrix (low active)
-	output reg       resetkey        // 1=hardware reset key pressed
+module lm80c_ps2keyboard_adapter (
+    input clk,
+    input reset,
+    
+    // Input from PS2 keyboard
+    input valid,         // 1 when the key is valid and can be processed
+    input [9:0] key,     // Extended PS2 key code (modified to 10-bit width for key code, status, and extended flag)
+    input key_status,    // 1=pressed, 0=released
+    
+    // LM80C interface
+    output reg [7:0] KM [7:0],  // The 8x8 LM80C keyboard matrix (active low)
+    output reg resetkey         // 1 when the hardware reset key is pressed
 );
 
 // fkeys row

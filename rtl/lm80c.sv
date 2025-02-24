@@ -5,6 +5,7 @@ module lm80c
 	
     // clocks
 	input sys_clock,		
+	input cpu_clock,
 	input vdp_clock,	
 	
 	input vdp_ena,
@@ -371,7 +372,6 @@ z80ctc_top z80ctc_top
 	
 	// trigger 0-3 are not connected
 	// daisy chain not available in this Z80CTC implementation
-);
-			
+);	
 
 endmodule
