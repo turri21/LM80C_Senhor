@@ -165,6 +165,7 @@ localparam CONF_STR = {
 	"P1-;",
 	"P1O[5],Option 1-1,Off,On;",
 	"d0P1F1,BIN;",
+	"d0P1F2,PRG;",    
 	"H0P1O[10],Option 1-2,Off,On;",
 	"-;",
 	"P2,Test Page 2;",
@@ -187,8 +188,8 @@ localparam CONF_STR = {
 // HPS I/O and OSD
 ////////////////////////////////////////////////////////////////////////
 
-wire        forced_scandoubler;
-wire [21:0] gamma_bus;
+wire         forced_scandoubler;
+wire  [21:0] gamma_bus;
 
 wire   [1:0] buttons_internal;
 wire [127:0] status;
@@ -355,28 +356,49 @@ lm80c lm80c_inst
 // PS2 Keyboard adapter
 ////////////////////////////////////////////////////////////////////////
 
-wire key_strobe;
+wire [7:0] KM[7:0];
 
-wire key_pressed = ps2_key[9];
-wire [7:0] key_code = ps2_key[7:0];
-wire key_extended = ps2_key[8];
+///////////////////////////////////////////////////////////////////////////////
+// 1. Generate a valid strobe whenever ps2_key[10] toggles
+///////////////////////////////////////////////////////////////////////////////
+reg old_state;
+reg key_strobe;
 
-always @(posedge clk_sys) begin
-    reg old_state;
-    old_state <= ps2_key[10];
-    if (old_state != ps2_key[10]) begin
-        key_strobe <= ~key_strobe;
+always @(posedge clk_sys or posedge reset) begin
+    if (reset) begin
+        old_state   <= 1'b0;
+        key_strobe  <= 1'b0;
+    end else begin
+        // Watch bit [10] for toggles
+        old_state <= ps2_key[10];
+        if (old_state != ps2_key[10]) begin
+            // Toggle key_strobe every time ps2_key[10] changes
+            key_strobe <= ~key_strobe;
+        end
     end
 end
 
-wire [7:0] KM [7:0];
+///////////////////////////////////////////////////////////////////////////////
+// 2. Build the 16-bit "key" and 1-bit "key_status" for the adapter
+///////////////////////////////////////////////////////////////////////////////
+wire [15:0] adapter_key;
+wire        adapter_key_status;
+
+// If extended bit [8] = 1, put 0xE0 in the top byte, else 0x00.
+// Lower byte is the scancode [7:0].
+assign adapter_key        = ps2_key[8] 
+                            ? {8'hE0, ps2_key[7:0]} 
+                            : {8'h00, ps2_key[7:0]};
+
+// key_status is simply the pressed bit [9].
+assign adapter_key_status = ps2_key[9];
 
 lm80c_ps2keyboard_adapter kbd_adapter (
     .clk(clk_sys),
     .reset(reset),
     .valid(key_strobe),
-    .key({key_extended, key_pressed, key_code}),
-    .key_status(key_pressed),
+    .key(adapter_key),
+    .key_status(adapter_key_status),
     .KM(KM),
     .resetkey(reset_key)
 );

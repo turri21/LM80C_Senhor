@@ -53,7 +53,7 @@ always @(posedge clk) begin
 end
 
 localparam IS_PAL = 1;
-parameter HORIZONTAL_SHIFT = 0; //-36;
+parameter HORIZONTAL_SHIFT = -36;
 
 vdp18_core
   
