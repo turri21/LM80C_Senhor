@@ -72,6 +72,7 @@ wire M1   = ~M1_n;
 
 // t80cpu was taken from https://github.com/sorgelig/Amstrad_MiST by sorgelig
 
+/*
 tv80s cpu (
     .reset_n(~RESET ), 
     .clk(sys_clock), 
@@ -91,6 +92,34 @@ tv80s cpu (
     .A(A), 
     .di(cpu_din),
     .dout(cpu_dout)
+);
+*/
+
+T80pa cpu
+(
+	.reset_n ( ~RESET        ),  
+	
+	.clk     ( sys_clock     ), 
+	
+	.CEN_p   ( z80_ena       ),	
+
+	.a       ( A             ),   
+	.DO      ( cpu_dout      ),   
+	.di      ( cpu_din       ),   
+	
+	.rd_n    ( RD_n          ),   
+	.wr_n    ( WR_n          ),   
+	
+	.iorq_n  ( IORQ_n        ),   
+	.mreq_n  ( MREQ_n        ),   
+
+	.int_n   ( INT_n         ),   
+	.nmi_n   ( VDP_INT_n     ),   
+
+	.m1_n    ( M1_n          ),   
+	.rfsh_n  ( 0             ),   
+	.busrq_n ( 1             ),   
+	.wait_n  ( ~WAIT         )    
 );
 
 /******************************************************************************************/
@@ -188,7 +217,7 @@ wire [0:7]  vram_dout;
 // 16K x 8 bits VRAM
 dpram  #(8, 14) vram
 (
-  .clock_a  ( sys_clock  ),  
+  .clock_a  ( vdp_clock  ),  
   .address_a( vram_a     ),  
   .data_a   ( vram_din   ),                       
   .wren_a   ( vram_we    ),                       
@@ -206,7 +235,7 @@ wire VDP_INT_n;
 
 tms9918_async 
 #(
-	.HORIZONTAL_SHIFT(-36)    // was -42. -36 good empiric value to center the image on the screen
+	.HORIZONTAL_SHIFT(-42)    // was -42. -36 good empiric value to center the image on the screen
 ) 
 tms9918
 (
