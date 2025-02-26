@@ -1,5 +1,5 @@
 set_global_assignment -name SDC_FILE LM80C.sdc
-set_global_assignment -name QIP_FILE rtl/vdp18/vdp18.qip
+set_global_assignment -name QIP_FILE rtl/vdp18/vhdl/vdp18.qip
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/lm80c.sv
 set_global_assignment -name SYSTEMVERILOG_FILE LM80C.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/downloader.sv

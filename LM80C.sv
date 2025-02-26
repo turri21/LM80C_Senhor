@@ -235,23 +235,36 @@ pll pll_inst
 (
     .refclk (CLK_50M),
     .rst    (1'b0),
-    .outclk_0 (clk_sys), // 42.954545 MHz
-    .outclk_1 (clk_cpu), //  3.579545 MHz
-    .outclk_2 (clk_vdp), // 10.738636 MHz
+    .outclk_0 (clk_sys), // 42.954545 MHz     // 29.4912
+    //.outclk_1 (clk_cpu), //  3.579545 MHz
+    .outclk_1 (clk_vdp), // 10.738636 MHz     // 42.954545
     .locked   (pll_locked)
 );
 
 assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL  = ce_5m3;  
+assign CE_PIXEL  = ce_pix;  
 
-// vdp
+// ce_pix
 
+// previous code for 5.3
+/*
 reg ce_5m3 = 0;
 always @(posedge clk_sys) begin
     reg [2:0] div;
     div <= div + 1'd1;
     ce_5m3  <= !div[2:0];  // Generates 5.3 MHz enable signal (CE_PIXEL)
 end
+*/
+reg       ce_div = 1'b0;  // toggles each clock
+reg       ce_pix = 1'b0;  // one cycle wide pulse every other clock
+always @(posedge clk_vdp) begin
+    ce_div    <= ~ce_div;
+    // If you want a 1-cycle-wide strobe at half-rate:
+    ce_pix <= (ce_div == 1'b0);
+end
+
+
+// vdp
 
 reg [1:0] cnt_vdp;
 always @(posedge clk_vdp)

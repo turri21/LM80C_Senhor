@@ -235,7 +235,7 @@ wire VDP_INT_n;
 
 tms9918_async 
 #(
-	.HORIZONTAL_SHIFT(-42)    // was -42. -36 good empiric value to center the image on the screen
+	.HORIZONTAL_SHIFT(-42)    // -36 good empiric value to center the image on the screen
 ) 
 tms9918
 (
