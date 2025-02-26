@@ -154,27 +154,13 @@ assign BUTTONS   = 0;
 `include "build_id.v"
 localparam CONF_STR = {
 	"LM80C;;",
+    "F1,BAS, Load BAS File;",
+	"F2,PRG, Load PRG File;", 
+	"F3,BIN, Load BIOS ROM;",     
 	"-;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[2],TV Mode,NTSC,PAL;",
 	"O[4:3],Noise,White,Red,Green,Blue;",
-	"-;",
-	"P1,Test Page 1;",
-	"P1-;",
-	"P1-, -= Options in page 1 =-;",
-	"P1-;",
-	"P1O[5],Option 1-1,Off,On;",
-	"d0P1F1,BIN;",
-	"d0P1F2,PRG;",    
-	"H0P1O[10],Option 1-2,Off,On;",
-	"-;",
-	"P2,Test Page 2;",
-	"P2-;",
-	"P2-, -= Options in page 2 =-;",
-	"P2-;",
-	"P2S0,DSK;",
-	"P2O[7:6],Option 2,1,2,3,4;",
-	"-;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -293,7 +279,7 @@ wire  is_downloading;
 wire [1:0] buttons = buttons_internal;
 wire [127:0] status_local = status;
 
-wire reset = ~ROM_loaded | RESET | reset_key | eraser_busy;
+wire reset = ~ROM_loaded | RESET | reset_key | eraser_busy | buttons[1] | status[0];
 
 ////////////////////////////////////////////////////////////////////////
 // CPU WAIT and LED
@@ -312,6 +298,9 @@ wire       HSync;
 wire       VSync;
 wire       VBlank;
 wire       HBlank;
+
+wire       is_pal;
+assign is_pal = status_local[2];
 
 wire [1:0] ar = status_local[122:121];
 assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
@@ -345,6 +334,8 @@ lm80c lm80c_inst
     .VS         (VSync),
     .VBlank     (VBlank),
     .HBlank     (HBlank),
+
+    .is_pal     (is_pal),
 
     // Audio
     .CHANNEL_L  (CHANNEL_L),

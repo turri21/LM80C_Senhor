@@ -27,7 +27,9 @@ module tms9918_async
 	output [5:0] G,
 	output [5:0] B,
 	output       VBlank,
-	output       HBlank
+	output       HBlank,
+
+	input 		 is_pal
 );
 
 
@@ -52,7 +54,7 @@ always @(posedge clk) begin
 	
 end
 
-localparam IS_PAL = 1;
+localparam IS_PAL = 0;
 parameter HORIZONTAL_SHIFT = -36;
 
 vdp18_core

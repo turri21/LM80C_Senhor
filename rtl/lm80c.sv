@@ -20,6 +20,8 @@ module lm80c
 	output       VS,
     output       VBlank,
     output       HBlank,
+
+	input 		 is_pal,
 	
 	// audio
 	output [7:0] CHANNEL_L, 
@@ -235,7 +237,7 @@ wire VDP_INT_n;
 
 tms9918_async 
 #(
-	.HORIZONTAL_SHIFT(-42)    // -36 good empiric value to center the image on the screen
+	.HORIZONTAL_SHIFT(-30)    // -36 good empiric value to center the image on the screen
 ) 
 tms9918
 (
@@ -267,7 +269,9 @@ tms9918
 	.G(G),
 	.B(B),
     .VBlank(VBlank),
-    .HBlank(HBlank)
+    .HBlank(HBlank),
+
+	.is_pal(is_pal)
 );
 
 /******************************************************************************************/
